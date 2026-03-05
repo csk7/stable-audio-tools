@@ -162,3 +162,5 @@ cython_debug/
 *.ckpt
 *.wav
 wandb/*
+
+inference_speedup/dit_profile/*
