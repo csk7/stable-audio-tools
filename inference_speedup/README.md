@@ -3,7 +3,7 @@
 ## Setup
 
 - **Model**: `stabilityai/stable-audio-open-1.0`
-- **GPU**: NVIDIA GeForce RTX 4060 (8 GB VRAM)
+- **GPU**: NVIDIA GeForce RTX 3070 (8 GB VRAM)
 - **Attention**: PyTorch SDPA Flash Attention backend (monkey-patched)
 - **Precision**: float32 (TF32 disabled)
 - **Sampler**: dpmpp-3m-sde, 100 steps, cfg_scale=7
@@ -18,7 +18,7 @@ Offloading time is **excluded** from the measurements below.
 | Baseline       | 0.36s  | 42.58s | 1.22s | 44.15s     |
 | torch.compile  | 0.01s  | 40.13s | 1.22s | 41.36s     |
 
-## TODO (DiT CUDA Kernel Fusions)
+## TODO (DiT Inference Speed Up)
 
 - [ ] Implement cross-attention KV caching: pre-compute K,V projections once per prompt and reuse across denoising steps/layers; bypass `to_kv` and `repeat_interleave` in cross-attention.
 - [ ] Optimize attention path for long sequences (`N ~ 1024`): reduce dtype/layout churn around SDPA/FlashAttention, keep qkv in fp16/bf16 path consistently, and benchmark sliding-window option.
