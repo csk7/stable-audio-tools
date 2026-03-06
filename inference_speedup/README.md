@@ -15,8 +15,9 @@ Offloading time is **excluded** from the measurements below.
 
 | Run            | T5     | DiT    | VAE   | End-to-end |
 |----------------|--------|--------|-------|------------|
-| Baseline       | 0.36s  | 42.58s | 1.22s | 44.15s     |
+| Baseline       | 0.36s  | 42.98s | 1.22s | 44.55s     |
 | torch.compile  | 0.01s  | 40.13s | 1.22s | 41.36s     |
+| Latest baseline| 0.36s  | 42.49s | 1.22s | 44.07s     |
 
 ## TODO (DiT Inference Speed Up)
 

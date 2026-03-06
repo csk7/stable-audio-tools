@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from torch.amp import autocast
-from torch.profiler import record_function
 from typing import Callable, Literal
 from torch.nn.attention.flex_attention import flex_attention
 
@@ -681,15 +680,13 @@ class TransformerBlock(nn.Module):
             residual = x
             x = self.pre_norm(x)
             x = x * (1 + scale_self) + shift_self
-            with record_function("transformer.self_attention"):
-                x = self.self_attn(x, rotary_pos_emb = rotary_pos_emb, flex_attention_block_mask = self_attention_block_mask, flex_attention_score_mod = self_attention_score_mod, flash_attn_sliding_window = self_attention_flash_sliding_window)
+            x = self.self_attn(x, rotary_pos_emb = rotary_pos_emb, flex_attention_block_mask = self_attention_block_mask, flex_attention_score_mod = self_attention_score_mod, flash_attn_sliding_window = self_attention_flash_sliding_window)
             x = x * torch.sigmoid(1 - gate_self)
             x = self.self_attn_scale(x)
             x = x + residual
 
             if context is not None and self.cross_attend:
-                with record_function("transformer.cross_attention"):
-                    x = x + self.cross_attn_scale(self.cross_attn(self.cross_attend_norm(x), context = context, flex_attention_block_mask = cross_attention_block_mask, flex_attention_score_mod = cross_attention_score_mod, flash_attn_sliding_window = cross_attention_flash_sliding_window))
+                x = x + self.cross_attn_scale(self.cross_attn(self.cross_attend_norm(x), context = context, flex_attention_block_mask = cross_attention_block_mask, flex_attention_score_mod = cross_attention_score_mod, flash_attn_sliding_window = cross_attention_flash_sliding_window))
             
             if self.conformer is not None:
                 x = x + self.conformer_scale(self.conformer(x))
@@ -698,25 +695,21 @@ class TransformerBlock(nn.Module):
             residual = x
             x = self.ff_norm(x)
             x = x * (1 + scale_ff) + shift_ff
-            with record_function("transformer.feed_forward"):
-                x = self.ff(x)
+            x = self.ff(x)
             x = x * torch.sigmoid(1 - gate_ff)
             x = self.ff_scale(x)
             x = x + residual
 
         else:
-            with record_function("transformer.self_attention"):
-                x = x + self.self_attn_scale(self.self_attn(self.pre_norm(x), rotary_pos_emb = rotary_pos_emb, flex_attention_block_mask = self_attention_block_mask, flex_attention_score_mod = self_attention_score_mod, flash_attn_sliding_window = self_attention_flash_sliding_window))
+            x = x + self.self_attn_scale(self.self_attn(self.pre_norm(x), rotary_pos_emb = rotary_pos_emb, flex_attention_block_mask = self_attention_block_mask, flex_attention_score_mod = self_attention_score_mod, flash_attn_sliding_window = self_attention_flash_sliding_window))
 
             if context is not None and self.cross_attend:
-                with record_function("transformer.cross_attention"):
-                    x = x + self.cross_attn_scale(self.cross_attn(self.cross_attend_norm(x), context = context, flex_attention_block_mask = cross_attention_block_mask, flex_attention_score_mod = cross_attention_score_mod, flash_attn_sliding_window = cross_attention_flash_sliding_window))
+                x = x + self.cross_attn_scale(self.cross_attn(self.cross_attend_norm(x), context = context, flex_attention_block_mask = cross_attention_block_mask, flex_attention_score_mod = cross_attention_score_mod, flash_attn_sliding_window = cross_attention_flash_sliding_window))
                     
             if self.conformer is not None:
                 x = x + self.conformer_scale(self.conformer(x))
 
-            with record_function("transformer.feed_forward"):
-                x = x + self.ff_scale(self.ff(self.ff_norm(x)))
+            x = x + self.ff_scale(self.ff(self.ff_norm(x)))
         return x
         
 class ContinuousTransformer(nn.Module):

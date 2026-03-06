@@ -165,3 +165,4 @@ wandb/*
 
 inference_speedup/dit_profile/*
 inference_speedup/goldens/*
+inference_speedup/scripts/dit_profile/*
