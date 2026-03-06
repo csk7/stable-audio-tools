@@ -10,9 +10,11 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from stable_audio_tools import get_pretrained_model
 from stable_audio_tools.inference.sampling import sample_k
 from stable_audio_tools.models import transformer as sa_transformer
+from goldens_save import save_latent_golden, save_audio_golden, verify_golden_match
 
 
 _orig_apply_attn = sa_transformer.Attention.apply_attn
+
 
 def _flash_apply_attn(self, q, k, v, causal=None, **kwargs):
     if self.num_heads != self.kv_heads:
@@ -26,13 +28,24 @@ def _flash_apply_attn(self, q, k, v, causal=None, **kwargs):
     return out.to(orig_dtype)
 
 sa_transformer.Attention.apply_attn = _flash_apply_attn
-print("Patched attention to use PyTorch SDPA Flash Attention backend")
+print("Patched attention to use PyTorch Flash Attention backend")
 
 
 DOWNSAMPLING_RATIO = 2048
 LATENT_OFFLOAD_THRESHOLD = 256
 PROFILE_DIT = False
-TORCH_COMPILE = True
+TORCH_COMPILE = False
+SAVE_GOLDENS = False
+VERIFY_GOLDENS = TORCH_COMPILE
+GOLDENS_DIR = os.path.join(os.path.dirname(__file__), "..", "goldens")
+LATENT_GOLDEN_PATH = os.path.join(GOLDENS_DIR, "latent_goldens.npy")
+AUDIO_GOLDEN_PATH = os.path.join(GOLDENS_DIR, "audio_goldens.npy")
+# Relaxed tolerances for compiled/optimized inference paths, which can
+# introduce larger but still perceptually acceptable numeric drift.
+LATENT_RTL = 5e-1
+LATENT_ATL = 4e-1
+AUDIO_RTL = 5e-1
+AUDIO_ATL = 3e-1
 
 device = "cuda"
 
@@ -141,6 +154,11 @@ with torch.no_grad():
 
     torch.cuda.synchronize()
     dit_time = time.perf_counter() - dit_start
+    latent_for_verify = sampled
+
+    if SAVE_GOLDENS:
+        latent_path = save_latent_golden(sampled, GOLDENS_DIR)
+        print(f"Saved latent golden to {latent_path}")
 
     del noise, conditioning_tensors, conditioning_inputs
     torch.cuda.empty_cache()
@@ -169,7 +187,25 @@ with torch.no_grad():
 audio = rearrange(audio, "b d n -> d (b n)")
 audio = audio.to(torch.float32).div(torch.max(torch.abs(audio))).clamp(-1, 1).cpu().numpy().T
 
-output_path = "temple_bells.wav"
+if SAVE_GOLDENS:
+    audio_golden_path = save_audio_golden(audio, GOLDENS_DIR)
+    print(f"Saved audio golden to {audio_golden_path}")
+
+if VERIFY_GOLDENS:
+    if os.path.exists(LATENT_GOLDEN_PATH) and os.path.exists(AUDIO_GOLDEN_PATH):
+        latent_check = verify_golden_match(latent_for_verify, LATENT_GOLDEN_PATH, rtol=LATENT_RTL, atol=LATENT_ATL)
+        print(f"Latent golden verification: match={latent_check['match']} "
+            f"max_abs_diff={latent_check['max_abs_diff']:.6e} max_rel_diff={latent_check['max_rel_diff']:.6e}")
+        
+        audio_check = verify_golden_match(audio, AUDIO_GOLDEN_PATH, rtol=AUDIO_RTL, atol=AUDIO_ATL)
+        print( f"Audio golden verification: match={audio_check['match']} "
+            f"max_abs_diff={audio_check['max_abs_diff']:.6e} max_rel_diff={audio_check['max_rel_diff']:.6e}")
+    else:
+        print(f"Latent golden not found at {LATENT_GOLDEN_PATH}, skipping verification")
+        print(f"Audio golden not found at {AUDIO_GOLDEN_PATH}, skipping verification")
+
+
+output_path = "temple_bells_torch_compile.wav"
 sf.write(output_path, audio, sample_rate)
 
 e2e_time = t5_time + dit_time + vae_time
