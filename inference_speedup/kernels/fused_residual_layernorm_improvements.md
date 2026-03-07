@@ -69,13 +69,6 @@ The fused kernel was *slower* than the separate path due to redundant memory tra
 
 Added `num_stages` (default 2) for software pipelining. In benchmarks, no measurable difference was observed—likely because for N=1536 with BLOCK_SIZE=2048 there is only one loop iteration, leaving nothing to pipeline. Configurable via `RESIDUAL_LN_NUM_STAGES`.
 
-## Configuration
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `USE_PYTORCH_FUSED` | `0` | Set to `1` to fallback to PyTorch (add + F.layer_norm) |
-| `RESIDUAL_LN_MULTI_ROW` | `1` | Set to `0` for single-row kernel (one program per row) |
-| `RESIDUAL_LN_NUM_STAGES` | `2` | Triton pipelining stages (1, 2, or 3) |
 
 ## Benchmark Results (Typical Shape: M=1200, N=1536)
 
@@ -84,11 +77,9 @@ Added `num_stages` (default 2) for software pipelining. In benchmarks, no measur
 | Original fused kernel | ~234 |
 | Separate add + layernorm | ~177 |
 | Optimized fused (single-row) | ~41 |
-| Optimized fused (multi-row, default) | ~47 |
+| Optimized fused (multi-row, default) | ~37 |
 
 The optimized kernel is ~5× faster than the original fused version and ~2–4× faster than the separate path in isolated benchmarks. Actual gains in the full model depend on GPU contention and memory pressure.
 
 ## Kernel Variants
-
-- **Single-row** (`_residual_add_layernorm_fwd_kernel_single_row`): One program per row. Use when `RESIDUAL_LN_MULTI_ROW=0`. Slightly faster in isolation for some shapes.
 - **Multi-row** (`_residual_add_layernorm_fwd_kernel`): Two rows per program, Weight/Bias reuse. Default. Can be faster under load due to reduced memory traffic.

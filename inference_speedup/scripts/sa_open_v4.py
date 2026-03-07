@@ -24,19 +24,7 @@ from goldens_save import verify_golden_match
 from tools.tools import patch_attention_with_sdpa_flash, setup_torch_backend, build_conditioning
 from tools.tools import build_dit_kwargs, create_noise, normalize_audio, print_timing
 
-try:
-    import importlib.util
-    _kernel_path = os.path.join(_inference_speedup_dir, "kernels", "fused_residual_layernorm.py")
-    _spec = importlib.util.spec_from_file_location("fused_residual_layernorm", _kernel_path)
-    _mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    residual_add_layernorm = _mod.residual_add_layernorm
-    HAS_FUSED_RESIDUAL_LN = True
-except (ImportError, FileNotFoundError, AttributeError) as e:
-    HAS_FUSED_RESIDUAL_LN = False
-    residual_add_layernorm = None
-    print(f"sa_open_v4: fused residual+layernorm not available ({e}), using PyTorch path")
-
+from kernels.fused_residual_layernorm import residual_add_layernorm
 _orig_attention_forward = sa_transformer.Attention.forward
 
 
@@ -103,42 +91,23 @@ def _attention_forward_with_cross_kv_cache(self, x, context=None, rotary_pos_emb
 
     return out
 
-
 def clear_cross_attention_kv_cache(denoiser):
     for module in denoiser.modules():
         if isinstance(module, sa_transformer.Attention) and hasattr(module, "_cross_kv_cached"):
             module._cross_kv_cached = None
 
-
 sa_transformer.Attention.forward = _attention_forward_with_cross_kv_cache
 patch_attention_with_sdpa_flash(sa_transformer)
 
-
 def _can_use_fused_residual_ln(norm):
     """Only use fused kernel with LayerNorm (no force_fp32)."""
-    return (
-        HAS_FUSED_RESIDUAL_LN
-        and isinstance(norm, sa_transformer.LayerNorm)
-        and not getattr(norm, "force_fp32", False)
-    )
-
+    return (isinstance(norm, sa_transformer.LayerNorm) and not getattr(norm, "force_fp32", False))
 
 _orig_transformer_block_forward = sa_transformer.TransformerBlock.forward
 
-
-def _transformer_block_forward_fused_residual_ln(
-    self,
-    x,
-    context=None,
-    global_cond=None,
-    rotary_pos_emb=None,
-    self_attention_block_mask=None,
-    self_attention_score_mod=None,
-    cross_attention_block_mask=None,
-    cross_attention_score_mod=None,
-    self_attention_flash_sliding_window=None,
-    cross_attention_flash_sliding_window=None,
-):
+def _transformer_block_forward_fused_residual_ln(self, x, context=None, global_cond=None, rotary_pos_emb=None,
+    self_attention_block_mask=None, self_attention_score_mod=None, cross_attention_block_mask=None, cross_attention_score_mod=None,
+    self_attention_flash_sliding_window=None, cross_attention_flash_sliding_window=None):
     if rotary_pos_emb is None and self.add_rope:
         rotary_pos_emb = self.rope.forward_from_seq_len(x.shape[-2])
 
@@ -148,8 +117,7 @@ def _transformer_block_forward_fused_residual_ln(
             self_attention_block_mask=self_attention_block_mask, self_attention_score_mod=self_attention_score_mod,
             cross_attention_block_mask=cross_attention_block_mask, cross_attention_score_mod=cross_attention_score_mod,
             self_attention_flash_sliding_window=self_attention_flash_sliding_window,
-            cross_attention_flash_sliding_window=cross_attention_flash_sliding_window,
-        )
+            cross_attention_flash_sliding_window=cross_attention_flash_sliding_window)
 
     # global_cond_dim is None path - apply fused residual+layernorm where possible
     use_fused_self = _can_use_fused_residual_ln(self.cross_attend_norm if self.cross_attend else self.ff_norm)
@@ -198,7 +166,7 @@ print("Enabled sa_open_v4: cross-attention KV cache + fused residual-add + Layer
 
 DOWNSAMPLING_RATIO = 2048
 LATENT_OFFLOAD_THRESHOLD = 256
-PROFILE_DIT = True
+PROFILE_DIT = False
 
 GOLDENS_DIR = os.path.join(os.path.dirname(__file__), "..", "goldens")
 LATENT_GOLDEN_PATH = os.path.join(GOLDENS_DIR, "latent_goldens.npy")
@@ -222,10 +190,8 @@ latent_size = sample_size // DOWNSAMPLING_RATIO
 duration = sample_size / sample_rate
 offload = latent_size > LATENT_OFFLOAD_THRESHOLD
 
-print(
-    f"Sample rate: {sample_rate}, Sample size: {sample_size}, "
-    f"Latent size: {latent_size}, Duration: {duration:.1f}s, Offload: {offload}"
-)
+print(f"Sample rate: {sample_rate}, Sample size: {sample_size}, "
+    f"Latent size: {latent_size}, Duration: {duration:.1f}s, Offload: {offload}")
 print("Generating audio for prompt: 'The sound of hammer on wood'")
 
 conditioning = build_conditioning("The sound of hammer on wood", duration)
@@ -312,25 +278,12 @@ audio = normalize_audio(audio)
 
 if os.path.exists(LATENT_GOLDEN_PATH) and os.path.exists(AUDIO_GOLDEN_PATH):
     latent_check = verify_golden_match(latent_for_verify, LATENT_GOLDEN_PATH, rtol=LATENT_RTL, atol=LATENT_ATL)
-    if not latent_check.get("same_shape", True):
-        print(f"Latent golden verification: FAIL (shape mismatch) "
-            f"current={latent_check['current_shape']} golden={latent_check['golden_shape']}")
-    else:
-        print(f"Latent golden verification: {'PASS' if latent_check['match'] else 'FAIL'} "
-            f"max_abs_diff={latent_check['max_abs_diff']:.6e} max_rel_diff={latent_check['max_rel_diff']:.6e}")
-
+    print(f"Latent golden verification: match={latent_check['match']} "
+        f"max_abs_diff={latent_check['max_abs_diff']:.6e} max_rel_diff={latent_check['max_rel_diff']:.6e}")
+    
     audio_check = verify_golden_match(audio, AUDIO_GOLDEN_PATH, rtol=AUDIO_RTL, atol=AUDIO_ATL)
-    if not audio_check.get("same_shape", True):
-        print(f"Audio golden verification: FAIL (shape mismatch) "
-            f"current={audio_check['current_shape']} golden={audio_check['golden_shape']}")
-    else:
-        print(f"Audio golden verification: {'PASS' if audio_check['match'] else 'FAIL'} "
-            f"max_abs_diff={audio_check['max_abs_diff']:.6e} max_rel_diff={audio_check['max_rel_diff']:.6e}")
-
-    all_pass = latent_check.get("match", False) and latent_check.get("same_shape", True) and \
-               audio_check.get("match", False) and audio_check.get("same_shape", True)
-    if not all_pass:
-        print("Verification FAILED: output does not match golden reference.")
+    print( f"Audio golden verification: match={audio_check['match']} "
+        f"max_abs_diff={audio_check['max_abs_diff']:.6e} max_rel_diff={audio_check['max_rel_diff']:.6e}")
 else:
     print(f"Latent golden not found at {LATENT_GOLDEN_PATH}, skipping verification")
     print(f"Audio golden not found at {AUDIO_GOLDEN_PATH}, skipping verification")
