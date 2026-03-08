@@ -13,11 +13,12 @@
 Offloading DiT + T5 to CPU was required before VAE decode to fit in 8 GB VRAM.
 Offloading time is **excluded** from the measurements below.
 
-| Run            | T5     | DiT    | VAE   | End-to-end |
-|----------------|--------|--------|-------|------------|
-| Baseline       | 0.36s  | 42.98s | 1.22s | 44.55s     |
-| torch.compile  | 0.01s  | 40.13s | 1.22s | 41.36s     |
-| Latest baseline| 0.36s  | 42.49s | 1.22s | 44.07s     |
+| Run                  | T5     | DiT    | VAE   | End-to-end |
+|----------------------|--------|--------|-------|------------|
+| Baseline             | 0.36s  | 42.98s | 1.22s | 44.55s     |
+| torch.compile        | 0.01s  | 40.13s | 1.22s | 41.36s     |
+| Caching KV context   | 0.36s  | 42.49s | 1.22s | 44.07s     |
+| Fused Sum + Layernorm| 0.36s  | 42.00s | 1.22s | 43.58s     |
 
 ## TODO (DiT Inference Speed Up)
 
