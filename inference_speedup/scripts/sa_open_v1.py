@@ -9,15 +9,9 @@ from stable_audio_tools import get_pretrained_model
 from stable_audio_tools.inference.sampling import sample_k
 from stable_audio_tools.models import transformer as sa_transformer
 from goldens_save import save_latent_golden, save_audio_golden
-from tools.tools import (
-    patch_attention_with_sdpa_flash,
-    setup_torch_backend,
-    build_conditioning,
-    build_dit_kwargs,
-    create_noise,
-    normalize_audio,
-    print_timing,
-)
+from tools.tools import patch_attention_with_sdpa_flash, setup_torch_backend, build_conditioning
+from tools.tools import build_dit_kwargs, create_noise, normalize_audio, print_timing
+
 
 patch_attention_with_sdpa_flash(sa_transformer)
 
@@ -84,9 +78,14 @@ with torch.no_grad():
                     model.model, noise, None, 5,
                     **conditioning_inputs, **dit_kwargs,
                 )
-        print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=40))
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))
-        print(f"\nProfile trace saved to {profile_dir}/")
+
+        table_str = prof.key_averages().table(sort_by="cuda_time_total", row_limit=40)
+        print(table_str)
+        profile_txt = os.path.join(profile_dir, "profile_table.txt")
+        with open(profile_txt, "w") as f:
+            f.write(table_str)
+        print(f"\nProfile table saved to {profile_txt}")
+        print(f"Profile trace saved to {profile_dir}/")
         print("View with: tensorboard --logdir " + profile_dir)
     else:
         sampled = sample_k(
