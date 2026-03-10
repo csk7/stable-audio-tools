@@ -37,7 +37,7 @@ Notably, `v6` DiT time (**40.34s**) is within **0.11s** of `torch.compile` (**40
 
 ### v1 – Baseline
 
-From `scripts/dit_profile/profile_table_filtered.txt`:
+![Baseline CUDA kernel breakdown](Results/images/image1.png)
 
 | Kernel | Self CUDA | Self CUDA % | # Calls |
 |:-------|----------:|------------:|--------:|
@@ -45,7 +45,7 @@ From `scripts/dit_profile/profile_table_filtered.txt`:
 | `flash_fwd_kernel` (FlashAttention) | 72.3ms | 3.48% | 240 |
 | elementwise / LN / SiLU / cat / clone | ~330ms | ~13.6% | — |
 
-![Baseline CUDA kernel breakdown](Results/images/image1.png)
+
 
 GEMM + FlashAttention together account for **~86.4%** of CUDA time. The remaining **~13.6%** is memory-bound pointwise work (layer norms, elementwise ops, SiLU, RoPE rotate). At `seq_len ~ 1025`, attention matmul is compute-bound — these are not fuse-able for large gains. Fusion opportunity is isolated to the memory-bound 13.6%.
 

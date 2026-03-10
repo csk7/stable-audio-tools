@@ -167,4 +167,4 @@ inference_speedup/dit_profile/*
 inference_speedup/goldens/*
 inference_speedup/scripts/dit_profile/*
 inference_speedup/run_all_versions.py
-inference_speedup/Results/*
+inference_speedup/Results/*.md
