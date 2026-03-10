@@ -37,7 +37,7 @@ Notably, `v6` DiT time (**40.34s**) is within **0.11s** of `torch.compile` (**40
 
 ### v1 – Baseline
 
-![Baseline CUDA kernel breakdown](Results/images/image1.png)
+<img src="Results/images/image1.png" alt="Baseline CUDA kernel breakdown" width="100%">
 
 | Kernel | Self CUDA | Self CUDA % | # Calls |
 |:-------|----------:|------------:|--------:|
@@ -51,7 +51,7 @@ GEMM + FlashAttention together account for **~86.4%** of CUDA time. The remainin
 
 GPU is the bottleneck (not CPU scheduling). This rules out CPU-side kernel-launch overhead as a significant factor (unlike MoE-style models), so all optimization headroom lives on the GPU memory-bandwidth side.
 
-![PyTorch profiler – GPU vs CPU timeline](Results/images/image2.png)
+<img src="Results/images/image2.png" alt="PyTorch profiler – GPU vs CPU timeline" width="100%">
 
 ### v3 – Cross-Attention KV Cache
 
@@ -61,17 +61,17 @@ The cross-attention context (T5 + number tokens, shape `(2, 130, 768)`) is stati
 
 *Baseline CPU trace — many redundant cross-attention ops:*
 
-![v3 baseline CPU trace](Results/images/image3.png)
+<img src="Results/images/image3.png" alt="v3 baseline CPU trace" width="100%">
 
 *Baseline GPU trace — critical path ~0.1 ms/call:*
 
-![v3 baseline GPU trace](Results/images/image4.png)
+<img src="Results/images/image4.png" alt="v3 baseline GPU trace" width="100%">
 
 **Fix:** Pre-compute per-layer K, V once before sampling. Store as `(2, 24, 130, 64)` tensors per layer and pass cached K/V directly to FlashAttention, bypassing `to_kv` + `repeat_interleave` entirely. After the fix, all those calls disappear from the trace.
 
 *After KV cache — cross-attention kernel calls eliminated:*
 
-![v3 after KV cache](Results/images/image5.png)
+<img src="Results/images/image5.png" alt="v3 after KV cache" width="100%">
 
 **DiT delta:** `42.98s → 42.49s` (−0.49s, ~1.1%)
 
@@ -81,17 +81,17 @@ The cross-attention context (T5 + number tokens, shape `(2, 130, 768)`) is stati
 
 *Baseline — two-kernel pattern (add + LayerNorm):*
 
-![v4 baseline LayerNorm – kernel timeline](Results/images/image6.png)
+<img src="Results/images/image6.png" alt="v4 baseline LayerNorm – kernel timeline" width="100%">
 
-![v4 baseline LayerNorm – kernel detail](Results/images/image7.png)
+<img src="Results/images/image7.png" alt="v4 baseline LayerNorm – kernel detail" width="100%">
 
 **Fix:** Single-pass Triton kernel: `residual_add_layernorm(x, sublayer_out, γ, β)` reads the input once, adds the residual, and computes norm in the same pass. Saves one full read + write round-trip of the tensor.
 
 *After fusion — single-pass residual + LayerNorm:*
 
-![v4 fused residual+LN – timeline](Results/images/image8.png)
+<img src="Results/images/image8.png" alt="v4 fused residual+LN – timeline" width="100%">
 
-![v4 fused residual+LN – kernel detail](Results/images/image9.png)
+<img src="Results/images/image9.png" alt="v4 fused residual+LN – kernel detail" width="100%">
 
 **Observed savings:** `~0.03 ms/call`. PyTorch's built-in CUDA LayerNorm is already well-optimized, so the margin is modest. Memory saving: `2 × (bytes of (2,1025,1536)) × memory_bandwidth`.
 
@@ -103,15 +103,15 @@ The cross-attention context (T5 + number tokens, shape `(2, 130, 768)`) is stati
 
 *Baseline — two SwiGLU kernels (~350 µs):*
 
-![v5 baseline SwiGLU – timeline](Results/images/image10.png)
+<img src="Results/images/image10.png" alt="v5 baseline SwiGLU – timeline" width="100%">
 
-![v5 baseline SwiGLU – kernel detail](Results/images/image11.png)
+<img src="Results/images/image11.png" alt="v5 baseline SwiGLU – kernel detail" width="100%">
 
 **Fix:** Single Triton kernel fusing `chunk + SiLU(gate) × value` on the post-GEMM tensor `(2, 1025, 12288) → (2, 1025, 6144)`. Eliminates the extra read/write between the two ops.
 
 *After fusion — single SwiGLU kernel (~150 µs, ~50% reduction):*
 
-![v5 fused SwiGLU](Results/images/image12.png)
+<img src="Results/images/image12.png" alt="v5 fused SwiGLU" width="100%">
 
 **Observed savings:** One kernel at **~150 µs** — a **~50% reduction** for that sub-path. Same root cause as v4: total savings scale as `bytes_moved × memory_bandwidth`.
 
@@ -123,17 +123,17 @@ The cross-attention context (T5 + number tokens, shape `(2, 130, 768)`) is stati
 
 *Baseline — fragmented RoPE ops (~800 µs):*
 
-![v6 baseline RoPE – timeline](Results/images/image13.png)
+<img src="Results/images/image13.png" alt="v6 baseline RoPE – timeline" width="100%">
 
-![v6 baseline RoPE – kernel detail](Results/images/image14.png)
+<img src="Results/images/image14.png" alt="v6 baseline RoPE – kernel detail" width="100%">
 
 **Fix:** Single Triton kernel fusing the cast, rotate, multiply, and concatenate in one pass. Validated against baseline numerically.
 
 *After fusion — single RoPE kernel:*
 
-![v6 fused RoPE – timeline](Results/images/image15.png)
+<img src="Results/images/image15.png" alt="v6 fused RoPE – timeline" width="100%">
 
-![v6 fused RoPE – kernel detail](Results/images/image16.png)
+<img src="Results/images/image16.png" alt="v6 fused RoPE – kernel detail" width="100%">
 
 **Observed savings:** Meaningful reduction in the ~800 µs RoPE cost. Worth implementing once larger bottlenecks (GEMM, FlashAttention) are not regressed.
 
